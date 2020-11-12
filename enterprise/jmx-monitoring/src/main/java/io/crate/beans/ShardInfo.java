@@ -37,8 +37,9 @@ import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.store.StoreStats;
 import org.elasticsearch.indices.IndicesService;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class ShardInfo implements ShardInfoMXBean {
@@ -128,23 +129,23 @@ public class ShardInfo implements ShardInfoMXBean {
     }
 
     @Override
-    public List<ShardStats> getShardStats() {
-        var result = new ArrayList<ShardStats>();
+    public Map<Integer, ShardStats> getShardStats() {
+        var result = new HashMap<Integer, ShardStats>();
         var discoveryNode = localNode.get();
         var state = clusterState.get();
         RoutingTable routingTable = state.getRoutingTable();
         if (routingTable != null) {
             ImmutableOpenMap<String, IndexRoutingTable> indicesRouting = routingTable.getIndicesRouting();
             for (ObjectObjectCursor<String, IndexRoutingTable> indexRouting : indicesRouting) {
-                IndexRoutingTable indexRoutingTable = indexRouting.value;
-                ImmutableOpenIntMap<IndexShardRoutingTable> shards = indexRoutingTable.getShards();
-                for (IntObjectCursor<IndexShardRoutingTable> shard : shards) {
-                    IndexShardRoutingTable value = shard.value;
-                    List<ShardRouting> shards1 = value.getShards();
-                    for (ShardRouting shardRouting : shards1) {
-                        if (discoveryNode.getId().equals(shardRouting.currentNodeId())) {
-                                var shardStats = new ShardStats(shardRouting.id(), getShardSize(shardRouting.id()), shardRouting.state().toString());
-                                result.add(shardStats);
+                for (IntObjectCursor<IndexShardRoutingTable> shard : indexRouting.value.getShards()) {
+                    for (ShardRouting shardRouting : shard.value) {
+                        if (!result.containsKey(shardRouting.id())) {
+                            if (discoveryNode.getId().equals(shardRouting.currentNodeId())) {
+                                var shardStats = new ShardStats(shardRouting.id(),
+                                                                getShardSize(shardRouting.id()),
+                                                                shardRouting.state().toString());
+                                result.put(shardRouting.id(), shardStats);
+                            }
                         }
                     }
                 }

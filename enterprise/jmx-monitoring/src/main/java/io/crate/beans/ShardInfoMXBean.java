@@ -23,6 +23,7 @@
 package io.crate.beans;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ShardInfoMXBean {
 
@@ -32,6 +33,6 @@ public interface ShardInfoMXBean {
 
     int getNumberOfReplicas();
 
-    List<ShardStats> getShardStats();
+    Map<Integer, ShardStats> getShardStats();
 
 }
