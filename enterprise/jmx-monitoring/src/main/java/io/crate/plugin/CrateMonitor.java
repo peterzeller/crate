@@ -28,11 +28,13 @@ import javax.management.MalformedObjectNameException;
 import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
 
+import io.crate.beans.ShardInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.http.HttpServerTransport;
+import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
@@ -61,7 +63,8 @@ public class CrateMonitor {
                         SQLOperations sqlOperations,
                         ClusterService clusterService,
                         ThreadPool threadPool,
-                        CircuitBreakerService breakerService) {
+                        CircuitBreakerService breakerService,
+                        IndicesService indicesService) {
         logger = LogManager.getLogger(CrateMonitor.class);
         registerMBean(QueryStats.NAME, new QueryStats(jobsLogs));
         registerMBean(NodeStatus.NAME, new NodeStatus(sqlOperations::isEnabled));
@@ -73,6 +76,7 @@ public class CrateMonitor {
         ));
         registerMBean(ThreadPools.NAME, new ThreadPools(threadPool));
         registerMBean(CircuitBreakers.NAME, new CircuitBreakers(breakerService));
+        registerMBean(ShardInfo.NAME, new ShardInfo(clusterService::state, clusterService::localNode, indicesService));
     }
 
     private void registerMBean(String name, Object bean) {
