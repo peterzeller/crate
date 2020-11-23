@@ -408,4 +408,5 @@ public final class ClusterSettings extends AbstractScopedSettings {
         ClusterBootstrapService.INITIAL_MASTER_NODES_SETTING,
         ClusterBootstrapService.UNCONFIGURED_BOOTSTRAP_TIMEOUT_SETTING,
         LagDetector.CLUSTER_FOLLOWER_LAG_TIMEOUT_SETTING);
+
 }

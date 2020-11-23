@@ -25,13 +25,14 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.coordination.CoordinationMetadata.VotingConfiguration;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
-import org.elasticsearch.common.settings.Settings;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The core class of the cluster state coordination algorithm, directly implementing the
@@ -42,6 +43,8 @@ public class CoordinationState {
     private static final Logger LOGGER = LogManager.getLogger(CoordinationState.class);
 
     private final DiscoveryNode localNode;
+
+    private final ElectionStrategy electionStrategy;
 
     // persisted state
     private final PersistedState persistedState;
@@ -54,11 +57,12 @@ public class CoordinationState {
     private VotingConfiguration lastPublishedConfiguration;
     private VoteCollection publishVotes;
 
-    public CoordinationState(Settings settings, DiscoveryNode localNode, PersistedState persistedState) {
+    public CoordinationState(DiscoveryNode localNode, PersistedState persistedState, ElectionStrategy electionStrategy) {
         this.localNode = localNode;
 
         // persisted state
         this.persistedState = persistedState;
+        this.electionStrategy = electionStrategy;
 
         // transient state
         this.joinVotes = new VoteCollection();
@@ -101,13 +105,9 @@ public class CoordinationState {
         return electionWon;
     }
 
-    public boolean isElectionQuorum(VoteCollection votes) {
-        return isElectionQuorum(votes, getLastAcceptedState());
-    }
-
-    static boolean isElectionQuorum(VoteCollection votes, ClusterState lastAcceptedState) {
-        return votes.isQuorum(lastAcceptedState.getLastCommittedConfiguration())
-            && votes.isQuorum(lastAcceptedState.getLastAcceptedConfiguration());
+    public boolean isElectionQuorum(VoteCollection joinVotes) {
+        return electionStrategy.isElectionQuorum(localNode, getCurrentTerm(), getLastAcceptedTerm(), getLastAcceptedVersion(),
+            getLastCommittedConfiguration(), getLastAcceptedConfiguration(), joinVotes);
     }
 
     public boolean isPublishQuorum(VoteCollection votes) {
@@ -116,6 +116,11 @@ public class CoordinationState {
 
     public boolean containsJoinVoteFor(DiscoveryNode node) {
         return joinVotes.containsVoteFor(node);
+    }
+
+    // used for tests
+    boolean containsJoin(Join join) {
+        return joinVotes.getJoins().contains(join);
     }
 
     public boolean joinVotesHaveQuorumFor(VotingConfiguration votingConfiguration) {
@@ -244,7 +249,7 @@ public class CoordinationState {
             throw new CoordinationStateRejectedException("rejecting join since this node has not received its initial configuration yet");
         }
 
-        final boolean added = joinVotes.addVote(join.getSourceNode());
+        final boolean added = joinVotes.addJoinVote(join);
         boolean prevElectionWon = electionWon;
         electionWon = isElectionQuorum(joinVotes);
         assert !prevElectionWon || electionWon; // we cannot go from won to not won
@@ -497,18 +502,28 @@ public class CoordinationState {
     }
 
     /**
-     * A collection of votes, used to calculate quorums.
+     * A collection of votes, used to calculate quorums. Optionally records the Joins as well.
      */
     public static class VoteCollection {
 
         private final Map<String, DiscoveryNode> nodes;
+        private final Set<Join> joins;
 
         public boolean addVote(DiscoveryNode sourceNode) {
             return sourceNode.isMasterNode() && nodes.put(sourceNode.getId(), sourceNode) == null;
         }
 
+        public boolean addJoinVote(Join join) {
+            final boolean added = addVote(join.getSourceNode());
+            if (added) {
+                joins.add(join);
+            }
+            return added;
+        }
+
         public VoteCollection() {
             nodes = new HashMap<>();
+            joins = new HashSet<>();
         }
 
         public boolean isQuorum(VotingConfiguration configuration) {
@@ -527,24 +542,31 @@ public class CoordinationState {
             return Collections.unmodifiableCollection(nodes.values());
         }
 
+        public Set<Join> getJoins() {
+            return Collections.unmodifiableSet(joins);
+        }
+
         @Override
         public String toString() {
-            return "VoteCollection{" + String.join(",", nodes.keySet()) + "}";
+            return "VoteCollection{votes=" + nodes.keySet() + ", joins=" + joins + "}";
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (!(o instanceof VoteCollection)) return false;
 
             VoteCollection that = (VoteCollection) o;
 
-            return nodes.equals(that.nodes);
+            if (!nodes.equals(that.nodes)) return false;
+            return joins.equals(that.joins);
         }
 
         @Override
         public int hashCode() {
-            return nodes.hashCode();
+            int result = nodes.hashCode();
+            result = 31 * result + joins.hashCode();
+            return result;
         }
     }
 }
